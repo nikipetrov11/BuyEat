@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // Всяко заведение: restaurants/{slug}
+    match /restaurants/{slug} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && slug.matches('^[a-z0-9-]{3,30}$')
+        && slug != 'admin';
+
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+
+      // Ястията на заведението: само собственикът пише
+      match /items/{itemId} {
+        allow read: if true;
+        allow write: if request.auth != null
+          && get(/databases/$(db)/documents/restaurants/$(slug)).data.ownerId == request.auth.uid;
+      }
+
+      // Поръчките за доставка: всеки клиент може да изпрати, чете и управлява само собственикът
+      match /orders/{orderId} {
+        allow create: if request.auth != null
+          && get(/databases/$(db)/documents/restaurants/$(slug)).data.get('ordersEnabled', false) == true
+          && request.resource.data.keys().hasOnly(['customerId', 'name', 'phone', 'address', 'note', 'items', 'fee', 'status', 'createdAt'])
+          && request.resource.data.keys().hasAll(['customerId', 'name', 'phone', 'address', 'note', 'items', 'fee', 'status', 'createdAt'])
+          && request.resource.data.customerId == request.auth.uid
+          && request.resource.data.status == 'new'
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 60
+          && request.resource.data.phone is string && request.resource.data.phone.size() >= 5 && request.resource.data.phone.size() <= 30
+          && request.resource.data.address is map
+          && request.resource.data.address.keys().hasOnly(['city', 'street', 'number', 'entrance', 'floor', 'apt'])
+          && request.resource.data.address.keys().hasAll(['city', 'street', 'number', 'entrance', 'floor', 'apt'])
+          && request.resource.data.address.city is string && request.resource.data.address.city.size() >= 2 && request.resource.data.address.city.size() <= 60
+          && request.resource.data.address.street is string && request.resource.data.address.street.size() >= 2 && request.resource.data.address.street.size() <= 100
+          && request.resource.data.address.number is string && request.resource.data.address.number.size() >= 1 && request.resource.data.address.number.size() <= 10
+          && request.resource.data.address.entrance is string && request.resource.data.address.entrance.size() <= 10
+          && request.resource.data.address.floor is string && request.resource.data.address.floor.size() <= 10
+          && request.resource.data.address.apt is string && request.resource.data.address.apt.size() <= 10
+          && request.resource.data.fee is number && request.resource.data.fee >= 0 && request.resource.data.fee <= 100
+          && request.resource.data.note is string && request.resource.data.note.size() <= 300
+          && request.resource.data.items is list
+          && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 40;
+
+        // чете собственикът или клиентът, който е направил поръчката
+        allow read: if request.auth != null
+          && (get(/databases/$(db)/documents/restaurants/$(slug)).data.ownerId == request.auth.uid
+              || resource.data.customerId == request.auth.uid);
+
+        allow update, delete: if request.auth != null
+          && get(/databases/$(db)/documents/restaurants/$(slug)).data.ownerId == request.auth.uid;
+      }
+    }
+
+    // Профил на клиента (име, телефон, последен адрес): само той
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
