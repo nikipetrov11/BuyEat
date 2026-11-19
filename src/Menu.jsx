@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, getDocs, limit, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth, db } from './firebase'
 import Customer from './Customer.jsx'
@@ -29,7 +29,10 @@ function openStatus(opens, closes) {
 }
 
 export default function Menu() {
-  const slug = useParams().slug.toLowerCase()
+  // на "/" няма адрес на заведение: показваме единственото (първото) заведение в базата
+  const param = useParams().slug?.toLowerCase()
+  const [first, setFirst] = useState(undefined)
+  const slug = param || first
   const [rest, setRest] = useState(undefined) // undefined = зарежда, null = няма такова
   const [items, setItems] = useState([])
   const [gActive, setGActive] = useState(null)
@@ -54,6 +57,14 @@ export default function Menu() {
   }, [menuOpen])
 
   useEffect(() => {
+    if (param) return
+    getDocs(query(collection(db, 'restaurants'), limit(1)))
+      .then(s => setFirst(s.empty ? null : s.docs[0].id))
+      .catch(() => setFirst(null))
+  }, [param])
+
+  useEffect(() => {
+    if (!slug) { if (slug === null) setRest(null); return }
     getDoc(doc(db, 'restaurants', slug)).then(s => setRest(s.exists() ? s.data() : null))
     const q = query(collection(db, 'restaurants', slug, 'items'), where('visible', '==', true))
     return onSnapshot(q, snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
@@ -165,9 +176,11 @@ export default function Menu() {
             {!rest.hideName && <h1 className="idname">{rest.name}</h1>}
           </div>
 
-          {status && (
+          {(status || canOrder) && (
             <div className="toprow">
-              <div className={`status${status.open ? '' : ' closed'}`}><i />{status.text}</div>
+              {status && <div className={`status${status.open ? '' : ' closed'}`}><i />{status.text}</div>}
+              {canOrder && <div className="infochip">🛵 {fee > 0 ? `Доставка ${fee.toFixed(2)} ${cur}` : 'Безплатна доставка'}</div>}
+              {canOrder && <div className="infochip">💵 Плащане в брой</div>}
             </div>
           )}
         </header>
